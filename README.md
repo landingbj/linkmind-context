@@ -7,7 +7,7 @@
 ## 项目结构
 
 ```
-linkmind-plugin/
+linkmind-context/
 ├── src/
 │   ├── index.ts               # 插件主逻辑
 │   └── types.ts               # ContextEngine 接口类型定义
@@ -37,7 +37,7 @@ lagi-web/src/main/java/
 ### 1. 安装依赖 & 构建
 
 ```bash
-cd linkmind-plugin
+cd linkmind-context
 npm install
 npm run build
 ```
@@ -48,14 +48,14 @@ npm run build
 
 ```bash
 # 如果已安装过旧版本，先删除再重装：
-rm -rf %USERPROFILE%\.openclaw\extensions\linkmind-context-engine
+rm -rf %USERPROFILE%\.openclaw\extensions\linkmind-context
 openclaw plugins install .
 ```
 
 安装成功后会看到：
 
 ```
-Installed plugin: linkmind-context-engine
+Installed plugin: linkmind-context
 Restart the gateway to load plugins.
 ```
 
@@ -67,10 +67,10 @@ Restart the gateway to load plugins.
 {
   "plugins": {
     "slots": {
-      "contextEngine": "linkmind-context-engine"
+      "contextEngine": "linkmind-context"
     },
     "entries": {
-      "linkmind-context-engine": {
+      "linkmind-context": {
         "config": {
           "debug": true,
           "compressionThreshold": 50,
@@ -200,4 +200,3 @@ Content-Type: application/json
 ## License
 
 ISC
-# linkmind-context
