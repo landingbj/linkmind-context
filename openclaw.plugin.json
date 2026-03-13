@@ -1,0 +1,34 @@
+{
+    "id": "linkmind-context",
+    "name": "LinkMind Intelligent Context Compression Engine",
+    "version": "1.0.0",
+    "configSchema": {
+        "type": "object",
+        "properties": {
+            "apiUrl": {
+                "type": "string",
+                "description": "LinkMind API URL"
+            },
+            "apiKey": {
+                "type": "string",
+                "description": "LinkMind API Key"
+            },
+            "compressionThreshold": {
+                "type": "number",
+                "default": 1000,
+                "description": "Compression threshold"
+            },
+            "debug": {
+                "type": "boolean",
+                "default": false,
+                "description": "Enable debug mode"
+            },
+            "tokenEstimationFactor": {
+                "type": "number",
+                "default": 1.5,
+                "description": "Token estimation factor"
+            }
+        },
+        "additionalProperties": false
+    }
+}

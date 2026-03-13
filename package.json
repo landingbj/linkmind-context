@@ -1,0 +1,35 @@
+{
+  "name": "linkmind-context",
+  "version": "1.0.0",
+  "description": "LinkMind Context Engine Plugin for OpenClaw",
+  "openclaw": {
+    "id": "linkmind-context",
+    "plugin": "./dist/index.js",
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "demo": "tsx test/demo.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "esbuild": "^0.27.3",
+    "get-tsconfig": "^4.13.6",
+    "resolve-pkg-maps": "^1.0.0",
+    "undici-types": "^7.18.2"
+  }
+}
