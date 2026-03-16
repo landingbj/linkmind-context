@@ -27,7 +27,7 @@ lagi-web/src/main/java/
 │   ├── CompressRequest.java   # 压缩接口请求体
 │   └── CompressResponse.java  # 压缩接口响应体
 └── ai/servlet/api/
-    └── LinkMindApiServlet.java  # POST /v1/linkmind/compress 接口实现
+    └── OpenClawApiServlet.java  # POST /v1/openclaw/compress 接口实现
 ```
 
 ---
@@ -148,7 +148,7 @@ dispose()       清理资源，等待下一条消息
 ### 接口地址
 
 ```
-POST /v1/linkmind/compress
+POST /v1/openclaw/compress
 Content-Type: application/json
 ```
 
