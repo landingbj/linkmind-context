@@ -18,6 +18,9 @@ import type {
 } from './types.js';
 
 
+const PLUGIN_ID = 'linkmind-context' as const;
+
+
 /** LinkMind API Client */
 class LinkMindClient {
   private config: Required<LinkMindPluginConfig>;
@@ -108,7 +111,7 @@ class LinkMindClient {
 class LinkMindContextEngine implements ContextEngine {
   /** Engine metadata */
   public readonly info: ContextEngineInfo = {
-    id: 'linkmind-context-engine',
+    id: PLUGIN_ID,
     name: 'LinkMind Intelligent Context Compression Engine',
     version: '1.0.0',
     ownsCompaction: true, // We manage compression lifecycle ourselves
@@ -366,7 +369,7 @@ export function createPlugin(config: LinkMindPluginConfig = {}): ContextEngine {
  * Standard OpenClaw plugin export format
  */
 export default {
-  id: "linkmind-context-engine",
+  id: PLUGIN_ID,
   name: "LinkMind Context Engine",
   description: "A context engine that compresses chat history using LinkMind API",
 
@@ -383,7 +386,7 @@ export default {
     // engine slot is resolved for each session.
     if (typeof api.registerContextEngine === 'function') {
       api.registerContextEngine(
-        "linkmind-context-engine",
+        PLUGIN_ID,
         () => new LinkMindContextEngine(config)
       );
       api.logger.info("[LinkMindPlugin] Context Engine factory registered via registerContextEngine(id, factory)");
