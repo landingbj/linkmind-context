@@ -59,7 +59,7 @@ class LinkMindClient {
       currentTokenCount: params.currentTokenCount,
     });
 
-    const response = await fetch(`${this.config.apiUrl}/linkmind/compress`, {
+    const response = await fetch(`${this.config.apiUrl}/openclaw/compress`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -108,7 +108,7 @@ class LinkMindClient {
 class LinkMindContextEngine implements ContextEngine {
   /** Engine metadata */
   public readonly info: ContextEngineInfo = {
-    id: 'linkmind-context-engine',
+    id: 'linkmind-context',
     name: 'LinkMind Intelligent Context Compression Engine',
     version: '1.0.0',
     ownsCompaction: true, // We manage compression lifecycle ourselves
@@ -366,7 +366,7 @@ export function createPlugin(config: LinkMindPluginConfig = {}): ContextEngine {
  * Standard OpenClaw plugin export format
  */
 export default {
-  id: "linkmind-context-engine",
+  id: "linkmind-context",
   name: "LinkMind Context Engine",
   description: "A context engine that compresses chat history using LinkMind API",
 
@@ -383,7 +383,7 @@ export default {
     // engine slot is resolved for each session.
     if (typeof api.registerContextEngine === 'function') {
       api.registerContextEngine(
-        "linkmind-context-engine",
+        "linkmind-context",
         () => new LinkMindContextEngine(config)
       );
       api.logger.info("[LinkMindPlugin] Context Engine factory registered via registerContextEngine(id, factory)");
