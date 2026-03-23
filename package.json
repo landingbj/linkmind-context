@@ -2,9 +2,35 @@
   "name": "linkmind-context",
   "version": "1.0.0",
   "description": "LinkMind Context Engine Plugin for OpenClaw",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/landingbj/linkmind-context.git"
+  },
+  "homepage": "https://github.com/landingbj/linkmind-context#readme",
+  "bugs": {
+    "url": "https://github.com/landingbj/linkmind-context/issues"
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "openclaw": {
     "id": "linkmind-context",
-    "plugin": "./dist/index.js",
+    "build": {
+      "openclawVersion": "2026.3.8",
+      "pluginSdkVersion": "2026.3.8"
+    },
+    "compat": {
+      "pluginApi": ">=1.0.0",
+      "builtWithOpenClawVersion": "2026.3.8",
+      "pluginSdkVersion": "2026.3.8",
+      "minGatewayVersion": "2026.3.8"
+    },
     "extensions": [
       "./dist/index.js"
     ]
@@ -13,12 +39,20 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "clean": "if exist dist rmdir /s /q dist",
     "dev": "tsx watch src/index.ts",
     "demo": "tsx test/demo.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "prepack": "npm run build",
+    "test": "npm run build"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "context-engine",
+    "context-compression",
+    "linkmind"
+  ],
+  "author": "landingbj",
   "license": "ISC",
   "type": "module",
   "devDependencies": {

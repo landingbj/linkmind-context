@@ -1,34 +1,32 @@
 {
-    "id": "linkmind-context",
-    "name": "LinkMind Intelligent Context Compression Engine",
-    "version": "1.0.0",
-    "configSchema": {
-        "type": "object",
-        "properties": {
-            "apiUrl": {
-                "type": "string",
-                "description": "LinkMind API URL"
-            },
-            "apiKey": {
-                "type": "string",
-                "description": "LinkMind API Key"
-            },
-            "compressionThreshold": {
-                "type": "number",
-                "default": 1000,
-                "description": "Compression threshold"
-            },
-            "debug": {
-                "type": "boolean",
-                "default": false,
-                "description": "Enable debug mode"
-            },
-            "tokenEstimationFactor": {
-                "type": "number",
-                "default": 1.5,
-                "description": "Token estimation factor"
-            }
-        },
-        "additionalProperties": false
+  "id": "linkmind-context",
+  "name": "LinkMind Intelligent Context Compression Engine",
+  "version": "1.0.0",
+  "description": "Compresses OpenClaw session context with the LinkMind API and registers a custom context engine slot.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiUrl": {
+        "type": "string",
+        "default": "https://api.linkmind.dev/v1",
+        "description": "Base URL of the LinkMind service."
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Optional bearer token used to authenticate with the LinkMind service."
+      },
+      "compressionThreshold": {
+        "type": "number",
+        "default": 1000,
+        "minimum": 1,
+        "description": "Trigger compaction when accumulated context characters exceed this threshold."
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable verbose plugin logs in the OpenClaw gateway."
+      }
     }
+  }
 }

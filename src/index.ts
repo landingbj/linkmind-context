@@ -1,50 +1,42 @@
-/**
- * OpenClaw LinkMind Context Engine Plugin
- * Strictly follows the official OpenClaw ContextEngine interface specification
- */
-
 import type {
-  LinkMindPluginConfig,
+  AgentMessage,
+  AssembleResult,
+  BootstrapResult,
+  CompactResult,
   ContextEngine,
   ContextEngineInfo,
-  BootstrapResult,
   IngestResult,
-  IngestBatchResult,
-  AssembleResult,
-  CompactResult,
-  SubagentSpawnPreparation,
-  SubagentEndReason,
-  AgentMessage,
-} from './types.js';
+  LinkMindPluginConfig,
+} from "./types.js";
 
+const PLUGIN_ID = "linkmind-context" as const;
+const DEFAULT_API_URL = "https://api.linkmind.dev/v1";
+const DEFAULT_COMPRESSION_THRESHOLD = 1000;
 
-const PLUGIN_ID = 'linkmind-context' as const;
+type LinkMindApiResponse = {
+  status: string;
+  messages: AgentMessage[];
+  tokensBefore?: number;
+  tokensAfter?: number;
+  error?: string;
+};
 
-
-/** LinkMind API Client */
 class LinkMindClient {
-  private config: Required<LinkMindPluginConfig>;
+  private readonly config: Required<LinkMindPluginConfig>;
 
   constructor(config: LinkMindPluginConfig) {
     this.config = {
-      apiUrl: config.apiUrl || 'https://api.linkmind.dev/v1',
-      apiKey: config.apiKey || '',
-      compressionThreshold: config.compressionThreshold || 1000,
-      debug: config.debug || false
+      apiUrl: config.apiUrl || DEFAULT_API_URL,
+      apiKey: config.apiKey || "",
+      compressionThreshold: config.compressionThreshold || DEFAULT_COMPRESSION_THRESHOLD,
+      debug: config.debug || false,
     };
   }
 
-  /** Get configuration */
-  getConfig() {
+  getConfig(): Required<LinkMindPluginConfig> {
     return this.config;
   }
 
-
-  /**
-   * Compress messages via LinkMind API.
-   * Currently calls the stub endpoint which logs the data and returns messages unchanged.
-   * @param params Compression parameters including messages and token counts
-   */
   async compress(params: {
     sessionId: string;
     messages: AgentMessage[];
@@ -52,39 +44,30 @@ class LinkMindClient {
     currentTokenCount?: number;
   }): Promise<{ messages: AgentMessage[]; tokensAfter: number }> {
     if (this.config.debug) {
-      console.log('[LinkMind] Calling compress API with', params.messages.length, 'messages');
+      console.log("[LinkMind] Calling compress API with", params.messages.length, "messages");
     }
 
-    const body = JSON.stringify({
-      sessionId: params.sessionId,
-      messages: params.messages,
-      tokenBudget: params.tokenBudget,
-      currentTokenCount: params.currentTokenCount,
-    });
-
     const response = await fetch(`${this.config.apiUrl}/openclaw/compress`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        ...(this.config.apiKey ? { 'Authorization': `Bearer ${this.config.apiKey}` } : {}),
+        "Content-Type": "application/json",
+        ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
       },
-      body,
+      body: JSON.stringify({
+        sessionId: params.sessionId,
+        messages: params.messages,
+        tokenBudget: params.tokenBudget,
+        currentTokenCount: params.currentTokenCount,
+      }),
     });
 
     if (!response.ok) {
       throw new Error(`[LinkMind] compress API error: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json() as {
-      status: string;
-      messages: AgentMessage[];
-      tokensBefore: number;
-      tokensAfter: number;
-      error?: string;
-    };
-
-    if (data.status !== 'success') {
-      throw new Error(`[LinkMind] compress API returned error: ${data.error}`);
+    const data = (await response.json()) as LinkMindApiResponse;
+    if (data.status !== "success") {
+      throw new Error(`[LinkMind] compress API returned error: ${data.error ?? "unknown error"}`);
     }
 
     return {
@@ -92,57 +75,33 @@ class LinkMindClient {
       tokensAfter: data.tokensAfter ?? params.currentTokenCount ?? 0,
     };
   }
-
-  /**
-   * Estimate token count for text
-   * @param content Text content to estimate
-   */
-  estimateTokens(content: string): number {
-    // Simple estimation: characters / 4 (recommended by OpenClaw)
-    return Math.ceil(content.length / 4);
-  }
-
 }
 
-/**
- * LinkMind Context Engine Plugin Implementation
- * Fully implements the official OpenClaw ContextEngine interface
- */
 class LinkMindContextEngine implements ContextEngine {
-  /** Engine metadata */
-  public readonly info: ContextEngineInfo = {
+  readonly info: ContextEngineInfo = {
     id: PLUGIN_ID,
-    name: 'LinkMind Intelligent Context Compression Engine',
-    version: '1.0.0',
-    ownsCompaction: true, // We manage compression lifecycle ourselves
+    name: "LinkMind Intelligent Context Compression Engine",
+    version: "1.0.0",
+    ownsCompaction: true,
   };
 
-  private client: LinkMindClient;
+  private readonly client: LinkMindClient;
   private sessionId: string | undefined;
   private sessionFile: string | undefined;
-  /** Messages cached from the latest afterTurn() call, used by compact() */
-  private _pendingMessages: AgentMessage[] | undefined;
+  private pendingMessages: AgentMessage[] | undefined;
 
-  /**
-   * Constructor receives plugin configuration (OpenClaw instantiates and passes config when loading plugin)
-   * @param config Plugin configuration
-   */
   constructor(config: LinkMindPluginConfig = {}) {
     this.client = new LinkMindClient(config);
   }
 
-
-  /**
-   * 1. Initialize engine state
-   * @param params Initialization parameters, containing session ID and session file path
-   */
   async bootstrap(params: { sessionId: string; sessionFile: string }): Promise<BootstrapResult> {
     this.sessionId = params.sessionId;
     this.sessionFile = params.sessionFile;
 
-    const config = this.client.getConfig();
-    if (config.debug) {
-      console.log(`[LinkMindPlugin] Initialization complete, session ID: ${params.sessionId}, session file: ${params.sessionFile}`);
+    if (this.client.getConfig().debug) {
+      console.log(
+        `[LinkMindPlugin] Initialization complete, session ID: ${params.sessionId}, session file: ${params.sessionFile}`
+      );
     }
 
     return {
@@ -151,55 +110,24 @@ class LinkMindContextEngine implements ContextEngine {
     };
   }
 
-  /**
-   * Helper: extract the total character count from a message's content field.
-   * content may be a plain string OR an array of content blocks
-   * (e.g. [{ type: "text", text: "..." }, { type: "image", ... }]).
-   * Typed as unknown to handle both the declared string type and the actual
-   * runtime array format that OpenClaw passes.
-   */
-  private contentChars(content: unknown): number {
-    if (typeof content === "string") {
-      return content.length;
-    }
-    if (Array.isArray(content)) {
-      return (content as Array<{ type: string; text?: string }>).reduce((sum, block) => {
-        return sum + (typeof block.text === "string" ? block.text.length : 0);
-      }, 0);
-    }
-    return 0;
-  }
-
-  /**
-   * 2. Ingest single message
-   * @param params Ingest parameters
-   */
   async ingest(params: {
     sessionId: string;
     message: AgentMessage;
     isHeartbeat?: boolean;
   }): Promise<IngestResult> {
-    // Skip heartbeat messages
     if (params.isHeartbeat) {
       return { ingested: false };
     }
 
-    const config = this.client.getConfig();
-    if (config.debug) {
-      console.log(`[LinkMindPlugin] Message ingested (no storage), role: ${params.message.role}, chars: ${this.contentChars(params.message.content)}`);
+    if (this.client.getConfig().debug) {
+      console.log(
+        `[LinkMindPlugin] Message ingested (no storage), role: ${params.message.role}, chars: ${this.contentChars(params.message.content)}`
+      );
     }
 
-    // No storage needed, OpenClaw runtime maintains messages
     return { ingested: true };
   }
 
-
-
-  /**
-   * 4. Post-turn hook — called by OpenClaw after every agent run completes.
-   * When ownsCompaction is true, this is the ONLY place the engine is notified
-   * to decide whether to compress; OpenClaw will NOT call compact() on its own.
-   */
   async afterTurn(params: {
     sessionId: string;
     sessionFile: string;
@@ -210,16 +138,12 @@ class LinkMindContextEngine implements ContextEngine {
     tokenBudget?: number;
     runtimeContext?: Record<string, unknown>;
   }): Promise<void> {
-    // Skip heartbeat turns — they carry no real user/assistant content
-    if (params.isHeartbeat) return;
+    if (params.isHeartbeat) {
+      return;
+    }
 
     const config = this.client.getConfig();
-
-    // Estimate total context size in characters
-    let totalChars = 0;
-    for (const msg of params.messages) {
-      totalChars += this.contentChars(msg.content);
-    }
+    const totalChars = params.messages.reduce((sum, message) => sum + this.contentChars(message.content), 0);
 
     if (config.debug) {
       console.log(
@@ -227,58 +151,50 @@ class LinkMindContextEngine implements ContextEngine {
       );
     }
 
-    // Trigger compaction when accumulated chars exceed the configured threshold
-    if (totalChars > config.compressionThreshold) {
-      console.log(
-        `[LinkMindPlugin] 🔥 Threshold exceeded (chars=${totalChars} > threshold=${config.compressionThreshold}), triggering compact...`
-      );
-      // Cache messages so compact() can access them
-      this._pendingMessages = params.messages;
+    if (totalChars <= config.compressionThreshold) {
+      return;
+    }
+
+    console.log(
+      `[LinkMindPlugin] Threshold exceeded (chars=${totalChars} > threshold=${config.compressionThreshold}), triggering compact...`
+    );
+
+    this.pendingMessages = params.messages;
+    try {
       await this.compact({
         sessionId: params.sessionId,
         sessionFile: params.sessionFile,
         currentTokenCount: Math.ceil(totalChars / 4),
-        // Spread optional fields only when defined to satisfy exactOptionalPropertyTypes
         ...(params.tokenBudget !== undefined && { tokenBudget: params.tokenBudget }),
         ...(params.runtimeContext !== undefined && { runtimeContext: params.runtimeContext }),
       });
-      this._pendingMessages = undefined;
+    } finally {
+      this.pendingMessages = undefined;
     }
   }
 
-  /**
-   * 5. Context assembly
-   * @param params Assembly parameters
-   */
   async assemble(params: {
     sessionId: string;
     messages: AgentMessage[];
     tokenBudget?: number;
   }): Promise<AssembleResult> {
-    // Use only the provided messages (OpenClaw runtime maintains history)
-    const messages = params.messages;
+    const estimatedTokens = params.messages.reduce(
+      (sum, message) => sum + Math.ceil(this.contentChars(message.content) / 4),
+      0
+    );
 
-    // Estimate total token count (chars / 4 per OpenClaw recommendation)
-    let estimatedTokens = 0;
-    for (const msg of messages) {
-      estimatedTokens += Math.ceil(this.contentChars(msg.content) / 4);
-    }
-
-    const config = this.client.getConfig();
-    if (config.debug) {
-      console.log(`[LinkMindPlugin] Context assembly complete, total ${messages.length} messages, estimated tokens: ${estimatedTokens}`);
+    if (this.client.getConfig().debug) {
+      console.log(
+        `[LinkMindPlugin] Context assembly complete, total ${params.messages.length} messages, estimated tokens: ${estimatedTokens}`
+      );
     }
 
     return {
-      messages,
+      messages: params.messages,
       estimatedTokens,
     };
   }
 
-  /**
-   * 6. Context compression
-   * @param params Compression parameters
-   */
   async compact(params: {
     sessionId: string;
     sessionFile: string;
@@ -290,17 +206,17 @@ class LinkMindContextEngine implements ContextEngine {
     runtimeContext?: Record<string, unknown>;
   }): Promise<CompactResult> {
     const config = this.client.getConfig();
-
-    // Use provided current token count
     const tokensBefore = params.currentTokenCount || 0;
+    const messages = this.pendingMessages;
 
     if (config.debug) {
       console.log(`[LinkMindPlugin] Starting compression, current tokens: ${tokensBefore}, budget: ${params.tokenBudget}`);
     }
 
-    const messages = this._pendingMessages;
     if (!messages || messages.length === 0) {
-      if (config.debug) console.log('[LinkMindPlugin] No pending messages, skipping compression');
+      if (config.debug) {
+        console.log("[LinkMindPlugin] No pending messages, skipping compression");
+      }
       return { ok: true, compacted: false };
     }
 
@@ -312,10 +228,10 @@ class LinkMindContextEngine implements ContextEngine {
         currentTokenCount: tokensBefore,
       });
 
-      const tokensAfter = result.tokensAfter;
-
       if (config.debug) {
-        console.log(`[LinkMindPlugin] Compression complete, tokens before: ${tokensBefore}, after: ${tokensAfter}`);
+        console.log(
+          `[LinkMindPlugin] Compression complete, tokens before: ${tokensBefore}, after: ${result.tokensAfter}`
+        );
       }
 
       return {
@@ -323,82 +239,68 @@ class LinkMindContextEngine implements ContextEngine {
         compacted: true,
         result: {
           tokensBefore,
-          tokensAfter,
+          tokensAfter: result.tokensAfter,
           details: {
             compressedMessages: result.messages.length,
-            compressionRatio: tokensBefore > 0 ? tokensAfter / tokensBefore : 1,
+            compressionRatio: tokensBefore > 0 ? result.tokensAfter / tokensBefore : 1,
           },
         },
       };
-    } catch (err) {
-      console.error('[LinkMindPlugin] Compression API call failed:', err);
+    } catch (error) {
+      console.error("[LinkMindPlugin] Compression API call failed:", error);
       return {
         ok: false,
         compacted: false,
-        reason: String(err),
+        reason: String(error),
       };
     }
   }
 
-
-
-  /**
-   * 9. Dispose resources
-   */
   async dispose(): Promise<void> {
-    const config = this.client.getConfig();
-    if (config.debug) {
-      console.log('[LinkMindPlugin] Resources released');
+    if (this.client.getConfig().debug) {
+      console.log("[LinkMindPlugin] Resources released");
     }
 
     this.sessionId = undefined;
     this.sessionFile = undefined;
+    this.pendingMessages = undefined;
+  }
+
+  private contentChars(content: AgentMessage["content"]): number {
+    if (typeof content === "string") {
+      return content.length;
+    }
+
+    if (Array.isArray(content)) {
+      return content.reduce((sum, block) => {
+        return sum + (typeof block.text === "string" ? block.text.length : 0);
+      }, 0);
+    }
+
+    return 0;
   }
 }
 
-/**
- * Factory function to create plugin instance
- * OpenClaw calls this function and passes configuration when loading plugin
- * @param config Plugin configuration
- */
 export function createPlugin(config: LinkMindPluginConfig = {}): ContextEngine {
   return new LinkMindContextEngine(config);
 }
 
-/**
- * Standard OpenClaw plugin export format
- */
 export default {
   id: PLUGIN_ID,
   name: "LinkMind Context Engine",
-  description: "A context engine that compresses chat history using LinkMind API",
+  description: "A context engine that compresses chat history using the LinkMind API.",
 
   register(api: any) {
     api.logger.info("[LinkMindPlugin] Plugin initialized, preparing Context Engine...");
 
-    const config: LinkMindPluginConfig = api.pluginConfig || {
-      debug: true,
-      compressionThreshold: 50,
-    };
-
-    // registerContextEngine expects (id: string, factory: () => ContextEngine)
-    // NOT a direct engine instance — the factory is called by OpenClaw when the
-    // engine slot is resolved for each session.
-    if (typeof api.registerContextEngine === 'function') {
-      api.registerContextEngine(
-        PLUGIN_ID,
-        () => new LinkMindContextEngine(config)
-      );
+    const config: LinkMindPluginConfig = api.pluginConfig ?? {};
+    if (typeof api.registerContextEngine === "function") {
+      api.registerContextEngine(PLUGIN_ID, () => new LinkMindContextEngine(config));
       api.logger.info("[LinkMindPlugin] Context Engine factory registered via registerContextEngine(id, factory)");
-    } else {
-      api.logger.error("[LinkMindPlugin] Error: registerContextEngine not found on API.");
-      api.logger.error("[LinkMindPlugin] Available API keys:", Object.keys(api));
+      return;
     }
+
+    api.logger.error("[LinkMindPlugin] Error: registerContextEngine not found on API.");
+    api.logger.error("[LinkMindPlugin] Available API keys:", Object.keys(api));
   },
-
-  activate(api: any) {
-    // Activation logic if needed
-    api.logger.info("[LinkMindPlugin] Plugin activated");
-  }
 };
-

@@ -12,14 +12,20 @@ export interface LinkMindPluginConfig {
 
 // ==================== Below are officially defined OpenClaw types ====================
 
+export interface AgentMessageContentBlock {
+  type: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
 /** Official Agent message type */
 export interface AgentMessage {
   /** Message unique ID */
   id?: string;
   /** Message role */
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'toolResult';
   /** Message content */
-  content: string;
+  content: string | AgentMessageContentBlock[];
   /** Timestamp */
   timestamp?: number;
   /** Name (used for tool calls) */
@@ -27,7 +33,7 @@ export interface AgentMessage {
   /** Tool call ID */
   tool_call_id?: string;
   /** Metadata */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   /** Whether already compressed */
   compressed?: boolean;
 }
