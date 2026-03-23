@@ -62,7 +62,7 @@ class LinkMindClient {
       currentTokenCount: params.currentTokenCount,
     });
 
-    const response = await fetch(`${this.config.apiUrl}/linkmind/compress`, {
+    const response = await fetch(`${this.config.apiUrl}/openclaw/compress`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
