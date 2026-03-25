@@ -38,6 +38,24 @@ export interface AgentMessage {
   compressed?: boolean;
 }
 
+export type TranscriptRewriteReplacement = {
+  entryId: string;
+  message: AgentMessage;
+};
+
+export type TranscriptRewriteRequest = {
+  replacements: TranscriptRewriteReplacement[];
+};
+
+export type TranscriptRewriteResult = {
+  changed: boolean;
+  bytesFreed: number;
+  rewrittenEntries: number;
+  reason?: string;
+};
+
+export type ContextEngineMaintenanceResult = TranscriptRewriteResult;
+
 /** Context assembly result */
 export type AssembleResult = {
   /** Assembled message list, ordered as model context */
@@ -114,7 +132,9 @@ export type SubagentSpawnPreparation = {
 /** Subagent end reason */
 export type SubagentEndReason = "deleted" | "completed" | "swept" | "released";
 /** Context engine runtime context */
-export type ContextEngineRuntimeContext = Record<string, unknown>;
+export type ContextEngineRuntimeContext = Record<string, unknown> & {
+  rewriteTranscriptEntries?: (request: TranscriptRewriteRequest) => Promise<TranscriptRewriteResult>;
+};
 
 /**
  * Context engine interface definition, core contract for OpenClaw plugins
@@ -131,6 +151,16 @@ export interface ContextEngine {
   bootstrap?(params: { sessionId: string; sessionFile: string }): Promise<BootstrapResult>;
 
   /**
+   * Run transcript maintenance on the active session branch.
+   */
+  maintain?(params: {
+    sessionId: string;
+    sessionKey?: string;
+    sessionFile: string;
+    runtimeContext?: ContextEngineRuntimeContext;
+  }): Promise<ContextEngineMaintenanceResult>;
+
+  /**
    * Ingest single message into engine store
    * @param params.sessionId Session ID
    * @param params.message Message to ingest
@@ -138,6 +168,7 @@ export interface ContextEngine {
    */
   ingest(params: {
     sessionId: string;
+    sessionKey?: string;
     message: AgentMessage;
     isHeartbeat?: boolean;
   }): Promise<IngestResult>;
@@ -150,6 +181,7 @@ export interface ContextEngine {
    */
   ingestBatch?(params: {
     sessionId: string;
+    sessionKey?: string;
     messages: AgentMessage[];
     isHeartbeat?: boolean;
   }): Promise<IngestBatchResult>;
@@ -168,6 +200,7 @@ export interface ContextEngine {
    */
   afterTurn?(params: {
     sessionId: string;
+    sessionKey?: string;
     sessionFile: string;
     messages: AgentMessage[];
     prePromptMessageCount: number;
@@ -186,8 +219,11 @@ export interface ContextEngine {
    */
   assemble(params: {
     sessionId: string;
+    sessionKey?: string;
     messages: AgentMessage[];
     tokenBudget?: number;
+    model?: string;
+    prompt?: string;
   }): Promise<AssembleResult>;
 
   /**
@@ -204,6 +240,7 @@ export interface ContextEngine {
    */
   compact(params: {
     sessionId: string;
+    sessionKey?: string;
     sessionFile: string;
     tokenBudget?: number;
     force?: boolean;

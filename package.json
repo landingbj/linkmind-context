@@ -22,14 +22,14 @@
   "openclaw": {
     "id": "linkmind-context",
     "build": {
-      "openclawVersion": "2026.3.8",
-      "pluginSdkVersion": "2026.3.8"
+      "openclawVersion": "2026.3.23",
+      "pluginSdkVersion": "2026.3.23"
     },
     "compat": {
       "pluginApi": ">=1.0.0",
-      "builtWithOpenClawVersion": "2026.3.8",
-      "pluginSdkVersion": "2026.3.8",
-      "minGatewayVersion": "2026.3.8"
+      "builtWithOpenClawVersion": "2026.3.23",
+      "pluginSdkVersion": "2026.3.23",
+      "minGatewayVersion": "2026.3.23"
     },
     "extensions": [
       "./dist/index.js"

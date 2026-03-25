@@ -2,7 +2,16 @@
   "id": "linkmind-context",
   "name": "LinkMind Intelligent Context Compression Engine",
   "version": "1.0.0",
+  "kind": "context-engine",
   "description": "Compresses OpenClaw session context with the LinkMind API and registers a custom context engine slot.",
+  "uiHints": {
+    "apiKey": {
+      "sensitive": true
+    },
+    "debug": {
+      "advanced": true
+    }
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

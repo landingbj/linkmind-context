@@ -3,10 +3,14 @@ import type {
   AssembleResult,
   BootstrapResult,
   CompactResult,
+  ContextEngineMaintenanceResult,
   ContextEngine,
   ContextEngineInfo,
+  ContextEngineRuntimeContext,
   IngestResult,
   LinkMindPluginConfig,
+  TranscriptRewriteReplacement,
+  TranscriptRewriteResult,
 } from "./types.js";
 
 const PLUGIN_ID = "linkmind-context" as const;
@@ -89,6 +93,7 @@ class LinkMindContextEngine implements ContextEngine {
   private sessionId: string | undefined;
   private sessionFile: string | undefined;
   private pendingMessages: AgentMessage[] | undefined;
+  private pendingRewriteMessages: AgentMessage[] | undefined;
 
   constructor(config: LinkMindPluginConfig = {}) {
     this.client = new LinkMindClient(config);
@@ -126,6 +131,23 @@ class LinkMindContextEngine implements ContextEngine {
     }
 
     return { ingested: true };
+  }
+
+  async maintain(params: {
+    sessionId: string;
+    sessionFile: string;
+    runtimeContext?: ContextEngineRuntimeContext;
+  }): Promise<ContextEngineMaintenanceResult> {
+    if (!this.pendingRewriteMessages?.length) {
+      return {
+        changed: false,
+        bytesFreed: 0,
+        rewrittenEntries: 0,
+        reason: "no pending rewrite messages",
+      };
+    }
+
+    return await this.applyTranscriptRewrite(this.pendingRewriteMessages, params.runtimeContext);
   }
 
   async afterTurn(params: {
@@ -170,6 +192,7 @@ class LinkMindContextEngine implements ContextEngine {
       });
     } finally {
       this.pendingMessages = undefined;
+      this.pendingRewriteMessages = undefined;
     }
   }
 
@@ -228,10 +251,29 @@ class LinkMindContextEngine implements ContextEngine {
         currentTokenCount: tokensBefore,
       });
 
+      this.pendingRewriteMessages = result.messages;
+      const rewriteResult = await this.applyTranscriptRewrite(result.messages, params.runtimeContext);
+
       if (config.debug) {
         console.log(
-          `[LinkMindPlugin] Compression complete, tokens before: ${tokensBefore}, after: ${result.tokensAfter}`
+          `[LinkMindPlugin] Compression complete, tokens before: ${tokensBefore}, after: ${result.tokensAfter}, rewritten: ${rewriteResult.rewrittenEntries}`
         );
+      }
+
+      if (!rewriteResult.changed) {
+        return {
+          ok: false,
+          compacted: false,
+          reason: rewriteResult.reason ?? "compression finished but transcript rewrite was not applied",
+          result: {
+            tokensBefore,
+            tokensAfter: result.tokensAfter,
+            details: {
+              compressedMessages: result.messages.length,
+              rewriteResult,
+            },
+          },
+        };
       }
 
       return {
@@ -243,6 +285,7 @@ class LinkMindContextEngine implements ContextEngine {
           details: {
             compressedMessages: result.messages.length,
             compressionRatio: tokensBefore > 0 ? result.tokensAfter / tokensBefore : 1,
+            rewriteResult,
           },
         },
       };
@@ -264,6 +307,7 @@ class LinkMindContextEngine implements ContextEngine {
     this.sessionId = undefined;
     this.sessionFile = undefined;
     this.pendingMessages = undefined;
+    this.pendingRewriteMessages = undefined;
   }
 
   private contentChars(content: AgentMessage["content"]): number {
@@ -279,6 +323,98 @@ class LinkMindContextEngine implements ContextEngine {
 
     return 0;
   }
+
+  private async applyTranscriptRewrite(
+    compressedMessages: AgentMessage[],
+    runtimeContext?: ContextEngineRuntimeContext
+  ): Promise<TranscriptRewriteResult> {
+    const rewrite = runtimeContext?.rewriteTranscriptEntries;
+    const sourceMessages = this.pendingMessages;
+
+    if (typeof rewrite !== "function") {
+      return {
+        changed: false,
+        bytesFreed: 0,
+        rewrittenEntries: 0,
+        reason: "runtimeContext.rewriteTranscriptEntries is unavailable",
+      };
+    }
+
+    if (!sourceMessages?.length || !compressedMessages.length) {
+      return {
+        changed: false,
+        bytesFreed: 0,
+        rewrittenEntries: 0,
+        reason: "no messages available for transcript rewrite",
+      };
+    }
+
+    const replacements = this.buildRewriteReplacements(sourceMessages, compressedMessages);
+    if (!replacements.length) {
+      return {
+        changed: false,
+        bytesFreed: 0,
+        rewrittenEntries: 0,
+        reason: "LinkMind returned messages that cannot be mapped to transcript entry ids",
+      };
+    }
+
+    return await rewrite({ replacements });
+  }
+
+  private buildRewriteReplacements(
+    sourceMessages: AgentMessage[],
+    compressedMessages: AgentMessage[]
+  ): TranscriptRewriteReplacement[] {
+    const byId = new Map(
+      sourceMessages.filter((message): message is AgentMessage & { id: string } => typeof message.id === "string").map((message) => [
+        message.id,
+        message,
+      ])
+    );
+
+    const replacementsById = compressedMessages.flatMap((message) => {
+      if (typeof message.id !== "string" || !byId.has(message.id)) {
+        return [];
+      }
+
+      return [
+        {
+          entryId: message.id,
+          message,
+        },
+      ];
+    });
+
+    if (replacementsById.length > 0) {
+      return replacementsById;
+    }
+
+    if (sourceMessages.length !== compressedMessages.length) {
+      return [];
+    }
+
+    return sourceMessages.flatMap((message, index) => {
+      if (typeof message.id !== "string") {
+        return [];
+      }
+
+      const compressedMessage = compressedMessages[index];
+      if (!compressedMessage) {
+        return [];
+      }
+
+      return [
+        {
+          entryId: message.id,
+          message: {
+            ...compressedMessage,
+            id: message.id,
+          },
+        },
+      ];
+    });
+  }
 }
 
 export function createPlugin(config: LinkMindPluginConfig = {}): ContextEngine {
@@ -289,6 +425,7 @@ export default {
   id: PLUGIN_ID,
   name: "LinkMind Context Engine",
   description: "A context engine that compresses chat history using the LinkMind API.",
+  kind: "context-engine" as const,
 
   register(api: any) {
     api.logger.info("[LinkMindPlugin] Plugin initialized, preparing Context Engine...");
