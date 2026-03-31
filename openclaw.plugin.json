@@ -4,14 +4,6 @@
   "version": "1.0.0",
   "kind": "context-engine",
   "description": "Compresses OpenClaw session context with the LinkMind API and registers a custom context engine slot.",
-  "uiHints": {
-    "apiKey": {
-      "sensitive": true
-    },
-    "debug": {
-      "advanced": true
-    }
-  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -21,20 +13,16 @@
         "default": "https://api.linkmind.dev/v1",
         "description": "Base URL of the LinkMind service."
       },
-      "apiKey": {
+      "logLevel": {
         "type": "string",
-        "description": "Optional bearer token used to authenticate with the LinkMind service."
-      },
-      "compressionThreshold": {
-        "type": "number",
-        "default": 1000,
-        "minimum": 1,
-        "description": "Trigger compaction when accumulated context characters exceed this threshold."
-      },
-      "debug": {
-        "type": "boolean",
-        "default": false,
-        "description": "Enable verbose plugin logs in the OpenClaw gateway."
+        "default": "info",
+        "enum": [
+          "debug",
+          "info",
+          "warn",
+          "error"
+        ],
+        "description": "Global log output level."
       }
     }
   }

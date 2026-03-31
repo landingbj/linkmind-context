@@ -1,20 +1,22 @@
 import type {
-  AgentMessage,
-  AssembleResult,
-  BootstrapResult,
-  CompactResult,
-  ContextEngineMaintenanceResult,
   ContextEngine,
   ContextEngineInfo,
   ContextEngineRuntimeContext,
-  IngestResult,
-  LinkMindPluginConfig,
-  TranscriptRewriteReplacement,
-  TranscriptRewriteResult,
-} from "./types.js";
+} from "openclaw/plugin-sdk";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import { delegateCompactionToRuntime } from "openclaw/plugin-sdk/core";
+import type { LinkMindPluginConfig } from "./types.js";
+
+// Derived from the ContextEngine interface (not directly exported from the SDK)
+type AssembleResult = Awaited<ReturnType<ContextEngine["assemble"]>>;
+type BootstrapResult = Awaited<
+  ReturnType<NonNullable<ContextEngine["bootstrap"]>>
+>;
+type IngestResult = Awaited<ReturnType<ContextEngine["ingest"]>>;
 
 const PLUGIN_ID = "linkmind-context" as const;
-const DEFAULT_API_URL = "https://api.linkmind.dev/v1";
+const DEFAULT_API_URL = "http://localhost:8080/v1";
 const DEFAULT_COMPRESSION_THRESHOLD = 1000;
 
 type LinkMindApiResponse = {
@@ -25,19 +27,57 @@ type LinkMindApiResponse = {
   error?: string;
 };
 
+
+type LogLevel = NonNullable<LinkMindPluginConfig["logLevel"]>;
+const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40,
+};
+
+const logger = {
+  level: "info" as LogLevel,
+  setLevel(level?: string): void {
+    if (level && level in LOG_LEVEL_WEIGHT) {
+      this.level = level as LogLevel;
+    }
+  },
+  canLog(level: LogLevel): boolean {
+    return LOG_LEVEL_WEIGHT[level] >= LOG_LEVEL_WEIGHT[this.level];
+  },
+  debug(message: string): void {
+    if (this.canLog("debug")) {
+      console.debug(`[LinkMind] ${message}`);
+    }
+  },
+  info(message: string): void {
+    if (this.canLog("info")) {
+      console.info(`[LinkMind] ${message}`);
+    }
+  },
+  warn(message: string): void {
+    if (this.canLog("warn")) {
+      console.warn(`[LinkMind] ${message}`);
+    }
+  },
+  error(message: string): void {
+    if (this.canLog("error")) {
+      console.error(`[LinkMind] ${message}`);
+    }
+  },
+};
+
 class LinkMindClient {
-  private readonly config: Required<LinkMindPluginConfig>;
+  private readonly config: { apiUrl: string };
 
   constructor(config: LinkMindPluginConfig) {
     this.config = {
       apiUrl: config.apiUrl || DEFAULT_API_URL,
-      apiKey: config.apiKey || "",
-      compressionThreshold: config.compressionThreshold || DEFAULT_COMPRESSION_THRESHOLD,
-      debug: config.debug || false,
     };
   }
 
-  getConfig(): Required<LinkMindPluginConfig> {
+  getConfig(): { apiUrl: string } {
     return this.config;
   }
 
@@ -47,15 +87,10 @@ class LinkMindClient {
     tokenBudget?: number;
     currentTokenCount?: number;
   }): Promise<{ messages: AgentMessage[]; tokensAfter: number }> {
-    if (this.config.debug) {
-      console.log("[LinkMind] Calling compress API with", params.messages.length, "messages");
-    }
-
     const response = await fetch(`${this.config.apiUrl}/openclaw/compress`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
       },
       body: JSON.stringify({
         sessionId: params.sessionId,
@@ -86,68 +121,22 @@ class LinkMindContextEngine implements ContextEngine {
     id: PLUGIN_ID,
     name: "LinkMind Intelligent Context Compression Engine",
     version: "1.0.0",
-    ownsCompaction: true,
+    ownsCompaction: false,
   };
 
   private readonly client: LinkMindClient;
-  private sessionId: string | undefined;
-  private sessionFile: string | undefined;
-  private pendingMessages: AgentMessage[] | undefined;
-  private pendingRewriteMessages: AgentMessage[] | undefined;
 
   constructor(config: LinkMindPluginConfig = {}) {
     this.client = new LinkMindClient(config);
   }
 
   async bootstrap(params: { sessionId: string; sessionFile: string }): Promise<BootstrapResult> {
-    this.sessionId = params.sessionId;
-    this.sessionFile = params.sessionFile;
-
-    if (this.client.getConfig().debug) {
-      console.log(
-        `[LinkMindPlugin] Initialization complete, session ID: ${params.sessionId}, session file: ${params.sessionFile}`
-      );
-    }
-
-    return {
-      bootstrapped: true,
-      importedMessages: 0,
-    };
+    logger.info(`Bootstrap complete, sessionId=${params.sessionId}`);
+    return { bootstrapped: true };
   }
 
-  async ingest(params: {
-    sessionId: string;
-    message: AgentMessage;
-    isHeartbeat?: boolean;
-  }): Promise<IngestResult> {
-    if (params.isHeartbeat) {
-      return { ingested: false };
-    }
-
-    if (this.client.getConfig().debug) {
-      console.log(
-        `[LinkMindPlugin] Message ingested (no storage), role: ${params.message.role}, chars: ${this.contentChars(params.message.content)}`
-      );
-    }
-
+  async ingest(): Promise<IngestResult> {
     return { ingested: true };
-  }
-
-  async maintain(params: {
-    sessionId: string;
-    sessionFile: string;
-    runtimeContext?: ContextEngineRuntimeContext;
-  }): Promise<ContextEngineMaintenanceResult> {
-    if (!this.pendingRewriteMessages?.length) {
-      return {
-        changed: false,
-        bytesFreed: 0,
-        rewrittenEntries: 0,
-        reason: "no pending rewrite messages",
-      };
-    }
-
-    return await this.applyTranscriptRewrite(this.pendingRewriteMessages, params.runtimeContext);
   }
 
   async afterTurn(params: {
@@ -158,42 +147,24 @@ class LinkMindContextEngine implements ContextEngine {
     autoCompactionSummary?: string;
     isHeartbeat?: boolean;
     tokenBudget?: number;
-    runtimeContext?: Record<string, unknown>;
+    runtimeContext?: ContextEngineRuntimeContext;
   }): Promise<void> {
     if (params.isHeartbeat) {
       return;
     }
 
-    const config = this.client.getConfig();
-    const totalChars = params.messages.reduce((sum, message) => sum + this.contentChars(message.content), 0);
+    const totalChars = params.messages.reduce((sum, message) => sum + this.contentChars(message), 0);
 
-    if (config.debug) {
-      console.log(
-        `[LinkMindPlugin] afterTurn: messages=${params.messages.length}, chars=${totalChars}, budget=${params.tokenBudget}`
-      );
-    }
+    logger.info(`afterTurn: messages=${params.messages.length}, chars=${totalChars}, budget=${params.tokenBudget}`);
 
-    if (totalChars <= config.compressionThreshold) {
+    if (totalChars <= DEFAULT_COMPRESSION_THRESHOLD) {
       return;
     }
 
-    console.log(
-      `[LinkMindPlugin] Threshold exceeded (chars=${totalChars} > threshold=${config.compressionThreshold}), triggering compact...`
+    logger.info(
+      `Threshold exceeded (chars=${totalChars} > threshold=${DEFAULT_COMPRESSION_THRESHOLD}), triggering compact...`
     );
 
-    this.pendingMessages = params.messages;
-    try {
-      await this.compact({
-        sessionId: params.sessionId,
-        sessionFile: params.sessionFile,
-        currentTokenCount: Math.ceil(totalChars / 4),
-        ...(params.tokenBudget !== undefined && { tokenBudget: params.tokenBudget }),
-        ...(params.runtimeContext !== undefined && { runtimeContext: params.runtimeContext }),
-      });
-    } finally {
-      this.pendingMessages = undefined;
-      this.pendingRewriteMessages = undefined;
-    }
   }
 
   async assemble(params: {
@@ -201,219 +172,40 @@ class LinkMindContextEngine implements ContextEngine {
     messages: AgentMessage[];
     tokenBudget?: number;
   }): Promise<AssembleResult> {
-    const estimatedTokens = params.messages.reduce(
-      (sum, message) => sum + Math.ceil(this.contentChars(message.content) / 4),
-      0
-    );
-
-    if (this.client.getConfig().debug) {
-      console.log(
-        `[LinkMindPlugin] Context assembly complete, total ${params.messages.length} messages, estimated tokens: ${estimatedTokens}`
-      );
-    }
+    logger.info(`Context assembly complete, messages=${params.messages.length}`);
 
     return {
       messages: params.messages,
-      estimatedTokens,
+      estimatedTokens: 0,
     };
   }
 
-  async compact(params: {
-    sessionId: string;
-    sessionFile: string;
-    tokenBudget?: number;
-    force?: boolean;
-    currentTokenCount?: number;
-    compactionTarget?: "budget" | "threshold";
-    customInstructions?: string;
-    runtimeContext?: Record<string, unknown>;
-  }): Promise<CompactResult> {
-    const config = this.client.getConfig();
-    const tokensBefore = params.currentTokenCount || 0;
-    const messages = this.pendingMessages;
-
-    if (config.debug) {
-      console.log(`[LinkMindPlugin] Starting compression, current tokens: ${tokensBefore}, budget: ${params.tokenBudget}`);
-    }
-
-    if (!messages || messages.length === 0) {
-      if (config.debug) {
-        console.log("[LinkMindPlugin] No pending messages, skipping compression");
-      }
-      return { ok: true, compacted: false };
-    }
-
-    try {
-      const result = await this.client.compress({
-        sessionId: params.sessionId,
-        messages,
-        ...(params.tokenBudget !== undefined && { tokenBudget: params.tokenBudget }),
-        currentTokenCount: tokensBefore,
-      });
-
-      this.pendingRewriteMessages = result.messages;
-      const rewriteResult = await this.applyTranscriptRewrite(result.messages, params.runtimeContext);
-
-      if (config.debug) {
-        console.log(
-          `[LinkMindPlugin] Compression complete, tokens before: ${tokensBefore}, after: ${result.tokensAfter}, rewritten: ${rewriteResult.rewrittenEntries}`
-        );
-      }
-
-      if (!rewriteResult.changed) {
-        return {
-          ok: false,
-          compacted: false,
-          reason: rewriteResult.reason ?? "compression finished but transcript rewrite was not applied",
-          result: {
-            tokensBefore,
-            tokensAfter: result.tokensAfter,
-            details: {
-              compressedMessages: result.messages.length,
-              rewriteResult,
-            },
-          },
-        };
-      }
-
-      return {
-        ok: true,
-        compacted: true,
-        result: {
-          tokensBefore,
-          tokensAfter: result.tokensAfter,
-          details: {
-            compressedMessages: result.messages.length,
-            compressionRatio: tokensBefore > 0 ? result.tokensAfter / tokensBefore : 1,
-            rewriteResult,
-          },
-        },
-      };
-    } catch (error) {
-      console.error("[LinkMindPlugin] Compression API call failed:", error);
-      return {
-        ok: false,
-        compacted: false,
-        reason: String(error),
-      };
-    }
+  async compact(
+    params: Parameters<ContextEngine["compact"]>[0]
+  ): Promise<Awaited<ReturnType<ContextEngine["compact"]>>> {
+    return await delegateCompactionToRuntime(params);
   }
 
   async dispose(): Promise<void> {
-    if (this.client.getConfig().debug) {
-      console.log("[LinkMindPlugin] Resources released");
-    }
-
-    this.sessionId = undefined;
-    this.sessionFile = undefined;
-    this.pendingMessages = undefined;
-    this.pendingRewriteMessages = undefined;
+    logger.info("Resources released");
   }
 
-  private contentChars(content: AgentMessage["content"]): number {
+  private contentChars(msg: AgentMessage): number {
+    const content = "content" in msg ? msg.content : undefined;
     if (typeof content === "string") {
       return content.length;
     }
 
     if (Array.isArray(content)) {
       return content.reduce((sum, block) => {
-        return sum + (typeof block.text === "string" ? block.text.length : 0);
+        if (typeof block === "object" && block !== null && "text" in block) {
+          return sum + (typeof block.text === "string" ? block.text.length : 0);
+        }
+        return sum;
       }, 0);
     }
 
     return 0;
-  }
-
-  private async applyTranscriptRewrite(
-    compressedMessages: AgentMessage[],
-    runtimeContext?: ContextEngineRuntimeContext
-  ): Promise<TranscriptRewriteResult> {
-    const rewrite = runtimeContext?.rewriteTranscriptEntries;
-    const sourceMessages = this.pendingMessages;
-
-    if (typeof rewrite !== "function") {
-      return {
-        changed: false,
-        bytesFreed: 0,
-        rewrittenEntries: 0,
-        reason: "runtimeContext.rewriteTranscriptEntries is unavailable",
-      };
-    }
-
-    if (!sourceMessages?.length || !compressedMessages.length) {
-      return {
-        changed: false,
-        bytesFreed: 0,
-        rewrittenEntries: 0,
-        reason: "no messages available for transcript rewrite",
-      };
-    }
-
-    const replacements = this.buildRewriteReplacements(sourceMessages, compressedMessages);
-    if (!replacements.length) {
-      return {
-        changed: false,
-        bytesFreed: 0,
-        rewrittenEntries: 0,
-        reason: "LinkMind returned messages that cannot be mapped to transcript entry ids",
-      };
-    }
-
-    return await rewrite({ replacements });
-  }
-
-  private buildRewriteReplacements(
-    sourceMessages: AgentMessage[],
-    compressedMessages: AgentMessage[]
-  ): TranscriptRewriteReplacement[] {
-    const byId = new Map(
-      sourceMessages.filter((message): message is AgentMessage & { id: string } => typeof message.id === "string").map((message) => [
-        message.id,
-        message,
-      ])
-    );
-
-    const replacementsById = compressedMessages.flatMap((message) => {
-      if (typeof message.id !== "string" || !byId.has(message.id)) {
-        return [];
-      }
-
-      return [
-        {
-          entryId: message.id,
-          message,
-        },
-      ];
-    });
-
-    if (replacementsById.length > 0) {
-      return replacementsById;
-    }
-
-    if (sourceMessages.length !== compressedMessages.length) {
-      return [];
-    }
-
-    return sourceMessages.flatMap((message, index) => {
-      if (typeof message.id !== "string") {
-        return [];
-      }
-
-      const compressedMessage = compressedMessages[index];
-      if (!compressedMessage) {
-        return [];
-      }
-
-      return [
-        {
-          entryId: message.id,
-          message: {
-            ...compressedMessage,
-            id: message.id,
-          },
-        },
-      ];
-    });
   }
 }
 
@@ -421,23 +213,17 @@ export function createPlugin(config: LinkMindPluginConfig = {}): ContextEngine {
   return new LinkMindContextEngine(config);
 }
 
-export default {
+export default definePluginEntry({
   id: PLUGIN_ID,
   name: "LinkMind Context Engine",
   description: "A context engine that compresses chat history using the LinkMind API.",
-  kind: "context-engine" as const,
+  kind: "context-engine",
 
-  register(api: any) {
-    api.logger.info("[LinkMindPlugin] Plugin initialized, preparing Context Engine...");
-
-    const config: LinkMindPluginConfig = api.pluginConfig ?? {};
-    if (typeof api.registerContextEngine === "function") {
-      api.registerContextEngine(PLUGIN_ID, () => new LinkMindContextEngine(config));
-      api.logger.info("[LinkMindPlugin] Context Engine factory registered via registerContextEngine(id, factory)");
-      return;
-    }
-
-    api.logger.error("[LinkMindPlugin] Error: registerContextEngine not found on API.");
-    api.logger.error("[LinkMindPlugin] Available API keys:", Object.keys(api));
+  register(api) {
+    const config: LinkMindPluginConfig = (api.pluginConfig ?? {}) as LinkMindPluginConfig;
+    logger.setLevel(config.logLevel);
+    logger.info(`Plugin initialized, preparing Context Engine... (logLevel=${logger.level})`);
+    api.registerContextEngine(PLUGIN_ID, () => new LinkMindContextEngine(config));
+    logger.info("Context Engine factory registered via registerContextEngine(id, factory)");
   },
-};
+});

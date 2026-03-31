@@ -63,6 +63,7 @@
   "dependencies": {
     "esbuild": "^0.27.3",
     "get-tsconfig": "^4.13.6",
+    "openclaw": "^2026.3.28",
     "resolve-pkg-maps": "^1.0.0",
     "undici-types": "^7.18.2"
   }
