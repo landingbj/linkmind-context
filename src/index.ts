@@ -7,6 +7,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { delegateCompactionToRuntime } from "openclaw/plugin-sdk/core";
 import type { LinkMindPluginConfig } from "./types.js";
+import { estimateTokens } from "./token-estimator.js";
 
 // Derived from the ContextEngine interface (not directly exported from the SDK)
 type AssembleResult = Awaited<ReturnType<ContextEngine["assemble"]>>;
@@ -17,16 +18,18 @@ type IngestResult = Awaited<ReturnType<ContextEngine["ingest"]>>;
 
 const PLUGIN_ID = "linkmind-context" as const;
 const DEFAULT_API_URL = "http://localhost:8080/v1";
-const DEFAULT_COMPRESSION_THRESHOLD = 1000;
 
-type LinkMindApiResponse = {
+type AssembleApiResponse = {
   status: string;
   messages: AgentMessage[];
-  tokensBefore?: number;
-  tokensAfter?: number;
-  error?: string;
+  msg?: string;
 };
 
+
+type AfterTurnApiResponse = {
+  status: string;
+  msg?: string;
+};
 
 type LogLevel = NonNullable<LinkMindPluginConfig["logLevel"]>;
 const LOG_LEVEL_WEIGHT: Record<LogLevel, number> = {
@@ -81,13 +84,12 @@ class LinkMindClient {
     return this.config;
   }
 
-  async compress(params: {
+  async assemble(params: {
     sessionId: string;
     messages: AgentMessage[];
-    tokenBudget?: number;
-    currentTokenCount?: number;
-  }): Promise<{ messages: AgentMessage[]; tokensAfter: number }> {
-    const response = await fetch(`${this.config.apiUrl}/openclaw/compress`, {
+    prompt: string;
+  }): Promise<{ messages: AgentMessage[]; estimatedTokens: number }> {
+    const response = await fetch(`${this.config.apiUrl}/openclaw/context/assemble`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -95,24 +97,40 @@ class LinkMindClient {
       body: JSON.stringify({
         sessionId: params.sessionId,
         messages: params.messages,
-        tokenBudget: params.tokenBudget,
-        currentTokenCount: params.currentTokenCount,
+        prompt: params.prompt,
       }),
     });
-
     if (!response.ok) {
-      throw new Error(`[LinkMind] compress API error: ${response.status} ${response.statusText}`);
+      throw new Error(`LinkMind assemble API error: ${response.status} ${response.statusText}`);
     }
-
-    const data = (await response.json()) as LinkMindApiResponse;
+    const data = (await response.json()) as AssembleApiResponse;
     if (data.status !== "success") {
-      throw new Error(`[LinkMind] compress API returned error: ${data.error ?? "unknown error"}`);
+      throw new Error(`LinkMind assemble API returned error: ${data.msg ?? "Unknown error"}`);
     }
+    return { messages: data.messages, estimatedTokens: estimateTokens(data.messages) };
+  }
 
-    return {
-      messages: data.messages,
-      tokensAfter: data.tokensAfter ?? params.currentTokenCount ?? 0,
-    };
+  async afterTurn(params: {
+    sessionId: string;
+    messages: AgentMessage[];
+  }): Promise<void> {
+    const response = await fetch(`${this.config.apiUrl}/openclaw/context/afterTurn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: params.sessionId,
+        messages: params.messages,
+      }),
+    });
+    if (!response.ok) { 
+      throw new Error(`LinkMind afterTurn API error: ${response.status} ${response.statusText}`);
+    }
+    const data = (await response.json()) as AfterTurnApiResponse;
+    if (data.status !== "success") {
+      throw new Error(`LinkMind afterTurn API returned error: ${data.msg ?? "Unknown error"}`);
+    }
   }
 }
 
@@ -120,7 +138,6 @@ class LinkMindContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: PLUGIN_ID,
     name: "LinkMind Intelligent Context Compression Engine",
-    version: "1.0.0",
     ownsCompaction: false,
   };
 
@@ -131,7 +148,7 @@ class LinkMindContextEngine implements ContextEngine {
   }
 
   async bootstrap(params: { sessionId: string; sessionFile: string }): Promise<BootstrapResult> {
-    logger.info(`Bootstrap complete, sessionId=${params.sessionId}`);
+    logger.debug(`Bootstrap complete, sessionId=${params.sessionId}`);
     return { bootstrapped: true };
   }
 
@@ -149,35 +166,41 @@ class LinkMindContextEngine implements ContextEngine {
     tokenBudget?: number;
     runtimeContext?: ContextEngineRuntimeContext;
   }): Promise<void> {
+    logger.debug(`afterTurn: sessionId=${params.sessionId}, messages=${params.messages.length}`);
     if (params.isHeartbeat) {
       return;
     }
-
-    const totalChars = params.messages.reduce((sum, message) => sum + this.contentChars(message), 0);
-
-    logger.info(`afterTurn: messages=${params.messages.length}, chars=${totalChars}, budget=${params.tokenBudget}`);
-
-    if (totalChars <= DEFAULT_COMPRESSION_THRESHOLD) {
+    try {
+      await this.client.afterTurn({
+        sessionId: params.sessionId,
+        messages: params.messages,
+      });
+    } catch (err) {
+      logger.error(`afterTurn failed, falling back to raw messages: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
-
-    logger.info(
-      `Threshold exceeded (chars=${totalChars} > threshold=${DEFAULT_COMPRESSION_THRESHOLD}), triggering compact...`
-    );
-
+    return;
   }
 
   async assemble(params: {
     sessionId: string;
     messages: AgentMessage[];
-    tokenBudget?: number;
+    prompt: string;
   }): Promise<AssembleResult> {
-    logger.info(`Context assembly complete, messages=${params.messages.length}`);
-
-    return {
-      messages: params.messages,
-      estimatedTokens: 0,
-    };
+    logger.debug(`assemble: sessionId=${params.sessionId}, messages=${params.messages.length}, prompt=${params.prompt}`);
+    if (params.messages.length === 0 || params.prompt.length === 0) {
+      return { messages: [], estimatedTokens: 0 };
+    }
+    try {
+      return await this.client.assemble({
+        sessionId: params.sessionId,
+        messages: params.messages,
+        prompt: params.prompt,
+      });
+    } catch (err) {
+      logger.error(`assemble failed, falling back to raw messages: ${err instanceof Error ? err.message : String(err)}`);
+      return { messages: params.messages, estimatedTokens: estimateTokens(params.messages) };
+    }
   }
 
   async compact(
@@ -187,25 +210,6 @@ class LinkMindContextEngine implements ContextEngine {
   }
 
   async dispose(): Promise<void> {
-    logger.info("Resources released");
-  }
-
-  private contentChars(msg: AgentMessage): number {
-    const content = "content" in msg ? msg.content : undefined;
-    if (typeof content === "string") {
-      return content.length;
-    }
-
-    if (Array.isArray(content)) {
-      return content.reduce((sum, block) => {
-        if (typeof block === "object" && block !== null && "text" in block) {
-          return sum + (typeof block.text === "string" ? block.text.length : 0);
-        }
-        return sum;
-      }, 0);
-    }
-
-    return 0;
   }
 }
 

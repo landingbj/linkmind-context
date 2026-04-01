@@ -10,7 +10,7 @@
     "properties": {
       "apiUrl": {
         "type": "string",
-        "default": "https://api.linkmind.dev/v1",
+        "default": "http://localhost:8080/v1",
         "description": "Base URL of the LinkMind service."
       },
       "logLevel": {

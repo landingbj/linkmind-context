@@ -1,6 +1,6 @@
 {
   "name": "linkmind-context",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LinkMind Context Engine Plugin for OpenClaw",
   "repository": {
     "type": "git",
@@ -55,16 +55,13 @@
   "author": "landingbj",
   "license": "ISC",
   "type": "module",
+  "peerDependencies": {
+    "@mariozechner/pi-agent-core": "^0.64.0",
+    "openclaw": "^2026.3.28"
+  },
   "devDependencies": {
     "@types/node": "^25.4.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "esbuild": "^0.27.3",
-    "get-tsconfig": "^4.13.6",
-    "openclaw": "^2026.3.28",
-    "resolve-pkg-maps": "^1.0.0",
-    "undici-types": "^7.18.2"
   }
 }
