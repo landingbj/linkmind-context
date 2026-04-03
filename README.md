@@ -36,7 +36,7 @@ linkmind-context/
 ```bash
 npm install
 npm run build
-openclaw plugins install .
+openclaw plugins install -l .
 ```
 
 After installing, restart the OpenClaw gateway so the plugin can be discovered and loaded.
@@ -46,7 +46,7 @@ After installing, restart the OpenClaw gateway so the plugin can be discovered a
 Once the package is published, users can install it with:
 
 ```bash
-openclaw plugins install linkmind-context
+openclaw plugins install linkmind-context@latest
 ```
 
 OpenClaw checks ClawHub first and falls back to npm automatically.
@@ -66,9 +66,7 @@ Configure the plugin in your OpenClaw config file and select it as the active co
         "enabled": true,
         "config": {
           "apiUrl": "http://localhost:8080/v1",
-          "apiKey": "",
-          "compressionThreshold": 1000,
-          "debug": false
+          "logLevel": "info"
         }
       }
     }
@@ -81,43 +79,8 @@ Configure the plugin in your OpenClaw config file and select it as the active co
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `apiUrl` | `string` | `https://api.linkmind.dev/v1` | Base URL of the LinkMind service |
-| `apiKey` | `string` | `""` | Optional bearer token |
-| `compressionThreshold` | `number` | `1000` | Compaction trigger threshold in characters |
-| `debug` | `boolean` | `false` | Enables verbose gateway logs |
+| `logLevel` | `string` | `info` | Log Level |
 
-## LinkMind API Contract
-
-The plugin calls this endpoint:
-
-```http
-POST /v1/openclaw/compress
-Content-Type: application/json
-Authorization: Bearer <token>
-```
-
-Example request body:
-
-```json
-{
-  "sessionId": "session-123",
-  "messages": [],
-  "tokenBudget": 128000,
-  "currentTokenCount": 2048
-}
-```
-
-Expected response shape:
-
-```json
-{
-  "status": "success",
-  "messages": [],
-  "tokensBefore": 2048,
-  "tokensAfter": 768
-}
-```
-
-If `status` is not `success`, the plugin treats the response as a compaction failure and keeps the original context.
 
 ## Publish Checklist
 
