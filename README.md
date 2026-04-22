@@ -78,7 +78,7 @@ Configure the plugin in your OpenClaw config file and select it as the active co
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `apiUrl` | `string` | `https://api.linkmind.dev/v1` | Base URL of the LinkMind service |
+| `apiUrl` | `string` | `http://localhost:8080/v1` | Base URL of the LinkMind service |
 | `logLevel` | `string` | `info` | Log Level |
 
 
